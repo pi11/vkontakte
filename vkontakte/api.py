@@ -3,11 +3,12 @@ from functools import partial
 from hashlib import md5
 import random
 import time
-import urllib
+from urllib.parse import urlencode, quote_plus
 import warnings
 import six
+import requests
 
-from vkontakte import http
+# from vkontakte import http
 try:
     import simplejson as json
 except ImportError:
@@ -60,15 +61,15 @@ def _encode(s):
     if isinstance(s, (dict, list, tuple)):
         s = json.dumps(s, ensure_ascii=False, encoding=REQUEST_ENCODING)
 
-    if isinstance(s, unicode):
-        s = s.encode(REQUEST_ENCODING)
+    # if isinstance(s, unicode):
+    #     s = s.encode(REQUEST_ENCODING)
 
     return s  # this can be number, etc.
 
 
 def _json_iterparse(response):
     response = response.strip().decode('utf8', 'ignore').encode('utf8')
-    decoder = json.JSONDecoder(encoding="utf8", strict=False)
+    decoder = json.JSONDecoder(strict=False)
     idx = 0
     while idx < len(response):
         obj, idx = decoder.raw_decode(response, idx)
@@ -104,6 +105,8 @@ class _API(object):
 
     def _get(self, method, timeout=DEFAULT_TIMEOUT, **kwargs):
         status, response = self._request(method, timeout=timeout, **kwargs)
+        # print(response) 
+        # response already in json
         if not (200 <= status <= 299):
             raise VKError({
                 'error_code': status,
@@ -113,13 +116,13 @@ class _API(object):
 
         # there may be a response after errors
         errors = []
-        for data in _json_iterparse(response):
-            if "error" in data:
-                errors.append(data["error"])
-            if "response" in data:
-                for error in errors:
-                    warnings.warn("%s" % error)
-                return data["response"]
+        data = response
+        if "error" in data:
+            errors.append(data["error"])
+        if "response" in data:
+            for error in errors:
+                warnings.warn("%s" % error)
+            return data["response"]
 
         raise VKError(errors[0])
 
@@ -172,14 +175,15 @@ class _API(object):
             params['sig'] = self._signature(params)
             url = API_URL
             secure = False
-        data = urllib.urlencode(params)
+        data = urlencode(params, quote_via=quote_plus)
 
         headers = {"Accept": "application/json",
                    "Content-Type": "application/x-www-form-urlencoded"}
 
         # urllib2 doesn't support timeouts for python 2.5 so
         # custom function is used for making http requests
-        return http.post(url, data, headers, timeout, secure=secure)
+        result = requests.post(url, data=data, headers=headers, timeout=timeout)
+        return result.status_code, result.json()
 
 
 class API(_API):
